@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, NoReturn
 from zoneinfo import ZoneInfo
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DISPLAY_PREFIX = "*"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 RESOURCE_LIMIT = 10**15
@@ -240,9 +240,9 @@ class GameResult:
     changed: bool
 
 
-def default_player(qq: str, *, game_date: str, config: GameConfig) -> JsonObject:
+def default_player(person_id: str, *, game_date: str, config: GameConfig) -> JsonObject:
     return {
-        "qq": qq,
+        "person_id": person_id,
         "kun": None,
         "jie_cao": config.default_jie_cao,
         "eggs": 0,
@@ -257,9 +257,8 @@ def default_player(qq: str, *, game_date: str, config: GameConfig) -> JsonObject
     }
 
 
-def default_state(scope_id: str) -> JsonObject:
+def default_state() -> JsonObject:
     return {
-        "gid": scope_id,
         "kun_enabled": True,
         "game_enabled": True,
         "players": {},
@@ -283,7 +282,7 @@ def default_envelope(scope_type: ScopeType, scope_id: str, now: datetime) -> Jso
         "scope_id": scope_id,
         "revision": 0,
         "updated_at": now.astimezone(UTC).isoformat(),
-        "state": default_state(scope_id),
+        "state": default_state(),
     }
 
 
@@ -295,7 +294,7 @@ def execute_play(
     display_name: str,
     scope_type: ScopeType,
     scope_id: str,
-    mentioned_user_ids: tuple[str, ...] = (),
+    mentioned_person_ids: tuple[str, ...] = (),
     rng: random.Random,
     now: datetime,
     config: GameConfig | None = None,
@@ -308,7 +307,7 @@ def execute_play(
     working = (
         deepcopy(original) if original is not None else default_envelope(scope_type, scope_id, now)
     )
-    engine = _Engine(working["state"], cfg, rng, now, scope_type)
+    engine = _Engine(working["state"], cfg, rng, now, scope_type, scope_id)
     try:
         command, arguments = _parse_command(text)
         engine.new_day_reset()
@@ -317,7 +316,7 @@ def execute_play(
             arguments,
             user_id=user_id,
             display_name=display_name or user_id,
-            mentioned_user_ids=mentioned_user_ids,
+            mentioned_person_ids=mentioned_person_ids,
         )
     except _Rejected as exc:
         return GameResult(exc.message, deepcopy(original), False)
@@ -348,7 +347,7 @@ def execute_admin(
     working = (
         deepcopy(original) if original is not None else default_envelope(scope_type, scope_id, now)
     )
-    engine = _Engine(working["state"], cfg, rng, now, scope_type)
+    engine = _Engine(working["state"], cfg, rng, now, scope_type, scope_id)
     try:
         command, arguments = _parse_command(text)
         engine.new_day_reset()
@@ -455,12 +454,14 @@ class _Engine:
         rng: random.Random,
         now: datetime,
         scope_type: ScopeType,
+        scope_id: str,
     ) -> None:
         self.state = state
         self.config = config
         self.rng = rng
         self.now = now
         self.scope_type = scope_type
+        self.scope_id = scope_id
         self.game_date = now.astimezone(SHANGHAI).date().isoformat()
 
     def player(self, user_id: str) -> JsonObject:
@@ -493,7 +494,7 @@ class _Engine:
         *,
         user_id: str,
         display_name: str,
-        mentioned_user_ids: tuple[str, ...],
+        mentioned_person_ids: tuple[str, ...],
     ) -> str:
         if command in ADMIN_ONLY_PLAY_COMMANDS:
             _reject("该动作只能通过 Yuki 的 SUPERUSER 管理入口执行。")
@@ -542,7 +543,7 @@ class _Engine:
                 player,
                 user_id,
                 display_name,
-                mentioned_user_ids,
+                mentioned_person_ids,
             )
         if command == "喝鸡汤":
             return self.drink_soup(player, display_name, arguments)
@@ -602,10 +603,10 @@ class _Engine:
             self.reset_round()
             return "本群本局状态已重置；玩家养成资源已保留。"
         if command == "清除全群数据":
-            if arguments != self.state["gid"]:
-                _reject(f"危险操作未确认。请把当前群号 {self.state['gid']} 作为参数重试。")
+            if arguments != self.scope_id:
+                _reject(f"危险操作未确认。请把当前 Space 编号 {self.scope_id} 作为参数重试。")
             self.state.clear()
-            self.state.update(default_state(arguments))
+            self.state.update(default_state())
             self.new_day_reset()
             return "本群全部养鲲数据已清除。"
         if command == "强制下架":
@@ -699,14 +700,14 @@ class _Engine:
         return "\n".join(
             ["阵亡名单："]
             + [
-                f"  {entry.get('qq', '?')} - {entry.get('reason', '未知')}"
+                f"  {entry.get('person_id', '?')} - {entry.get('reason', '未知')}"
                 for entry in entries[-DEATH_LIST_LIMIT:]
             ]
             + ["缅怀以上各位勇士！"]
         )
 
     def hatch(self, player: JsonObject, name: str) -> str:
-        self.ensure_not_auction_seller(player["qq"], "孵化")
+        self.ensure_not_auction_seller(player["person_id"], "孵化")
         if player.get("kun") and player["kun"].get("alive", True):
             _reject(f"@{name} 你已经拥有一只鲲了，开始吞吧！")
         if player["eggs"] <= 0:
@@ -803,7 +804,7 @@ class _Engine:
 
     def feed(self, player: JsonObject, name: str, arguments: str) -> str:
         kun = self.require_live_kun(player, name)
-        self.ensure_not_auction_seller(player["qq"], "喂食")
+        self.ensure_not_auction_seller(player["person_id"], "喂食")
         count = _positive_int(arguments)
         if player["eggs"] < count:
             _reject(f"@{name} 你没有足够的蛋！现有{player['eggs']}颗")
@@ -820,7 +821,7 @@ class _Engine:
 
     def train(self, player: JsonObject, name: str, arguments: str) -> str:
         kun = self.require_live_kun(player, name)
-        self.ensure_not_auction_seller(player["qq"], "磨炼")
+        self.ensure_not_auction_seller(player["person_id"], "磨炼")
         value = _finite_float(arguments)
         if value >= kun["weight"]:
             _reject("不行不行，这么练会死的！\n磨炼数值必须小于体重！")
@@ -849,7 +850,7 @@ class _Engine:
 
     def evolve(self, player: JsonObject, name: str) -> str:
         kun = self.require_live_kun(player, name)
-        self.ensure_not_auction_seller(player["qq"], "幻化")
+        self.ensure_not_auction_seller(player["person_id"], "幻化")
         if kun["attribute"] == "悲":
             _reject("悲属性的鲲无法幻化！")
         if player["phantom_pills"] <= 0:
@@ -880,13 +881,13 @@ class _Engine:
         player: JsonObject,
         user_id: str,
         name: str,
-        mentioned_user_ids: tuple[str, ...],
+        mentioned_person_ids: tuple[str, ...],
     ) -> str:
         self.require_live_kun(player, name)
         self.ensure_not_auction_seller(user_id, command)
-        targets = tuple(dict.fromkeys(uid for uid in mentioned_user_ids if uid != user_id))
+        targets = tuple(dict.fromkeys(uid for uid in mentioned_person_ids if uid != user_id))
         if len(targets) != 1:
-            _reject(f"@{name} 请在当前群消息中恰好提及一个其他玩家；纯文本 QQ 号不作为目标。")
+            _reject(f"@{name} 请在当前群消息中恰好提及一个其他玩家；纯文本账号不作为目标。")
         target_id = targets[0]
         target = self.existing_player(target_id)
         if command == "扔蛋":
@@ -930,7 +931,7 @@ class _Engine:
         if defender["weight"] <= 0 or critical:
             defender["weight"] = max(0, defender["weight"])
             attacker["weight"] += defender["weight"]
-            self.kill(target, f"被{name}吞噬", killer=player["qq"])
+            self.kill(target, f"被{name}吞噬", killer=player["person_id"])
             if defender["attribute"] == "淫" and self.rng.random() < 0.75:
                 self.kill(player, "被淫属性反噬")
                 return f"@{name} 吞噬了{target_id}的鲲，但被淫属性反噬！双方同归于尽！"
@@ -994,7 +995,7 @@ class _Engine:
         defender["weight"] -= damage
         if defender["weight"] <= 0:
             defender["weight"] = 0
-            self.kill(target, f"被{name}攻击致死", killer=player["qq"])
+            self.kill(target, f"被{name}攻击致死", killer=player["person_id"])
             return (
                 f"@{name} 发起攻击！\n"
                 + ("发动了致命一击！\n" if critical else "")
@@ -1029,7 +1030,7 @@ class _Engine:
         target["kun"]["weight"] -= damage
         if target["kun"]["weight"] <= 0:
             target["kun"]["weight"] = 0
-            self.kill(target, f"被{name}强袭致死", killer=player["qq"])
+            self.kill(target, f"被{name}强袭致死", killer=player["person_id"])
             return f"@{name} 强袭打死了{target_id}的鲲！\n神器余量：{player['divine_weapon']}"
         return (
             f"@{name} 向{target_id}发动强袭！对方受伤：{format_weight(damage)}\n"
@@ -1061,8 +1062,8 @@ class _Engine:
         if ranking:
             lines.append("----输出排行----")
             lines.extend(
-                f"  {index}. {qq}: {format_weight(damage)}"
-                for index, (qq, damage) in enumerate(ranking[:5], 1)
+                f"  {index}. {person_id}: {format_weight(damage)}"
+                for index, (person_id, damage) in enumerate(ranking[:5], 1)
             )
         return "\n".join(lines)
 
@@ -1157,7 +1158,7 @@ class _Engine:
 
     def tribulation(self, player: JsonObject, name: str) -> str:
         kun = self.require_live_kun(player, name)
-        self.ensure_not_auction_seller(player["qq"], "渡劫")
+        self.ensure_not_auction_seller(player["person_id"], "渡劫")
         if kun["attribute"] == "无":
             _reject(f"无属性的鲲无法渡劫！通过【{DISPLAY_PREFIX}幻化】可以获得属性")
         if player["jie_cao"] < self.config.tribulation_cost:
@@ -1174,7 +1175,7 @@ class _Engine:
 
     def release(self, player: JsonObject, name: str) -> str:
         kun = self.require_live_kun(player, name)
-        self.ensure_not_auction_seller(player["qq"], "放生")
+        self.ensure_not_auction_seller(player["person_id"], "放生")
         bonus = self.rng.randint(2, 10) if kun["attribute"] == "贪" else 0
         player["jie_cao"] += 2
         player["eggs"] += bonus
@@ -1183,7 +1184,7 @@ class _Engine:
         return f"@{name} 功德无量！节操+2！{extra}\n现有节操：{player['jie_cao']}"
 
     def resurrect(self, player: JsonObject, name: str) -> str:
-        self.ensure_not_auction_seller(player["qq"], "复活")
+        self.ensure_not_auction_seller(player["person_id"], "复活")
         kun = player.get("kun")
         if not kun:
             _reject(f"@{name} 你并没有鲲！")
@@ -1408,10 +1409,10 @@ class _Engine:
         if player["jie_cao"] <= 0:
             _reject("节操至少为1才能参与游戏")
         champion = self.state.get("duel_champion")
-        if champion and champion["uid"] == user_id:
+        if champion and champion["person_id"] == user_id:
             _reject(f"@{name} 你就是群主！还有谁！！！")
         if not champion:
-            self.state["duel_champion"] = {"uid": user_id, "name": name, "consecutive": 0}
+            self.state["duel_champion"] = {"person_id": user_id, "name": name, "consecutive": 0}
             return f"@{name} 开始单挑群主！\n回复【{DISPLAY_PREFIX}单挑群主】继续挑战"
         consecutive = champion["consecutive"]
         if self.rng.random() < 0.3 + consecutive * 0.05:
@@ -1427,10 +1428,8 @@ class _Engine:
     def admin_edit(self, arguments: str) -> str:
         parts = arguments.split(maxsplit=2)
         if len(parts) != 3:
-            _reject("格式：修改 QQ号 项目 数值")
+            _reject("格式：修改 Person编号 项目 数值")
         target_id, project, raw_value = parts
-        if not target_id.isdigit():
-            _reject("QQ号必须是纯数字。")
         player = self.existing_player(target_id)
         auction = self.state.get("auction")
         if auction and auction["seller"] == target_id and project in {"鲲", "体重", "属性"}:
@@ -1545,7 +1544,7 @@ class _Engine:
         kun["alive"] = False
         kun["weight"] = max(0, kun["weight"])
         kun["killer"] = killer
-        self.state["death_list"].append({"qq": player["qq"], "reason": reason})
+        self.state["death_list"].append({"person_id": player["person_id"], "reason": reason})
         self.trim_death_list()
 
     def trim_death_list(self) -> None:
@@ -1574,7 +1573,6 @@ def _validate_envelope(envelope: JsonObject, scope_type: ScopeType, scope_id: st
 
     state = _mapping(envelope.get("state"), "state")
     required = {
-        "gid",
         "kun_enabled",
         "game_enabled",
         "players",
@@ -1590,8 +1588,6 @@ def _validate_envelope(envelope: JsonObject, scope_type: ScopeType, scope_id: st
     }
     if not required.issubset(state):
         raise StateValidationError("state is missing required fields")
-    if state["gid"] != scope_id:
-        raise StateValidationError("state gid does not match scope_id")
     if not isinstance(state["kun_enabled"], bool) or not isinstance(state["game_enabled"], bool):
         raise StateValidationError("game switches must be booleans")
     if not isinstance(state["last_boss_date"], str):
@@ -1602,8 +1598,8 @@ def _validate_envelope(envelope: JsonObject, scope_type: ScopeType, scope_id: st
         if not isinstance(player_id, str) or not player_id:
             raise StateValidationError("player keys must be non-empty strings")
         player = _mapping(raw_player, f"player {player_id}")
-        if player.get("qq") != player_id:
-            raise StateValidationError("player key and qq differ")
+        if player.get("person_id") != player_id:
+            raise StateValidationError("player key and person_id differ")
         for field in (
             "jie_cao",
             "eggs",
@@ -1635,7 +1631,7 @@ def _validate_envelope(envelope: JsonObject, scope_type: ScopeType, scope_id: st
         raise StateValidationError("death_list must be a list")
     for entry in death_list:
         row = _mapping(entry, "death_list entry")
-        if not isinstance(row.get("qq"), str) or not isinstance(row.get("reason"), str):
+        if not isinstance(row.get("person_id"), str) or not isinstance(row.get("reason"), str):
             raise StateValidationError("invalid death_list entry")
 
     auction = state["auction"]
@@ -1650,7 +1646,9 @@ def _validate_envelope(envelope: JsonObject, scope_type: ScopeType, scope_id: st
     champion = state["duel_champion"]
     if champion is not None:
         champion_row = _mapping(champion, "duel_champion")
-        if champion_row.get("uid") not in players or not isinstance(champion_row.get("name"), str):
+        if champion_row.get("person_id") not in players or not isinstance(
+            champion_row.get("name"), str
+        ):
             raise StateValidationError("invalid duel champion")
         _nonnegative_int(champion_row.get("consecutive"), "duel_champion.consecutive")
 

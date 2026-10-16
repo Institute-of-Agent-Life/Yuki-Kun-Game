@@ -10,8 +10,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import engine
 import pytest
+
+import engine
 
 NOW = datetime(2026, 8, 2, 4, 0, tzinfo=UTC)
 SCOPE_ID = "20001"
@@ -117,7 +118,7 @@ def _play(
         display_name=f"玩家-{user_id}",
         scope_type=scope_type,
         scope_id=scope_id,
-        mentioned_user_ids=mentions,
+        mentioned_person_ids=mentions,
         rng=random.Random(seed),
         now=now,
     )
@@ -394,7 +395,7 @@ def test_missed_boss_assault_still_consumes_weapon_without_ranking_damage() -> N
 def test_death_list_is_compacted_in_storage_and_stays_bounded_after_kill() -> None:
     envelope = _envelope()
     envelope["state"]["death_list"] = [
-        {"qq": f"death-{index}", "reason": "测试阵亡"} for index in range(25)
+        {"person_id": f"death-{index}", "reason": "测试阵亡"} for index in range(25)
     ]
 
     compacted = _play(envelope, "阵亡名单")
@@ -402,7 +403,7 @@ def test_death_list_is_compacted_in_storage_and_stays_bounded_after_kill() -> No
     assert compacted.envelope is not None
     entries = compacted.envelope["state"]["death_list"]
     assert len(entries) == engine.DEATH_LIST_LIMIT
-    assert entries[0]["qq"] == "death-5"
+    assert entries[0]["person_id"] == "death-5"
     assert "death-0" not in compacted.text
     assert "death-24" in compacted.text
 
@@ -413,8 +414,8 @@ def test_death_list_is_compacted_in_storage_and_stays_bounded_after_kill() -> No
     assert killed.envelope is not None
     entries_after_kill = killed.envelope["state"]["death_list"]
     assert len(entries_after_kill) == engine.DEATH_LIST_LIMIT
-    assert entries_after_kill[0]["qq"] == "death-6"
-    assert entries_after_kill[-1]["qq"] == TARGET_ID
+    assert entries_after_kill[0]["person_id"] == "death-6"
+    assert entries_after_kill[-1]["person_id"] == TARGET_ID
 
 
 def test_auction_escrow_preserves_assets_and_refuses_buyer_with_kun() -> None:

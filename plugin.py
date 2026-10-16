@@ -13,7 +13,6 @@ from types import ModuleType
 from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, Field, ValidationError
-
 from yuki_plugin_sdk.context import PluginContext
 from yuki_plugin_sdk.models import JsonValue, PermissionLevel, StrictModel
 from yuki_plugin_sdk.registrar import (
@@ -141,18 +140,22 @@ class KunGamePlugin:
         if current is None:
             return _error("kun_game.no_current_message", "当前没有可执行游戏命令的消息。")
         if current.scope_type == "group":
-            if not current.group_id:
-                return _error("kun_game.invalid_scope", "群消息缺少可信群号。")
-            scope_id = current.group_id
+            if not current.space_id:
+                return _error("kun_game.invalid_scope", "群消息缺少可信 Space。")
+            scope_id = current.space_id
         elif current.scope_type == "private":
-            scope_id = current.sender_user_id
+            if not current.person_id:
+                return _error("kun_game.invalid_scope", "私聊消息缺少可信 Person。")
+            scope_id = current.person_id
         else:
             return _error("kun_game.invalid_scope", "消息作用域无效。")
         game_scope = cast("_engine.ScopeType", current.scope_type)
         if admin and current.scope_type != "group":
             return _error("kun_game.admin_group_only", "管理命令仅支持群聊。")
 
-        display_name = await self._display_name(context, current.sender_user_id)
+        if not current.person_id:
+            return _error("kun_game.invalid_scope", "消息缺少可信 Person。")
+        display_name = await self._display_name(context, current.person_id)
         try:
             plugin_config = await self._effective_config(context, current.scope_type, scope_id)
         except (ValueError, ValidationError) as exc:
@@ -167,13 +170,25 @@ class KunGamePlugin:
             return await self._configure(context, current.scope_type, scope_id, text, plugin_config)
 
         scope_key = f"{current.scope_type}:{scope_id}"
+        legacy_key = None
+        if current.platform == "qq":
+            legacy_owner = (
+                current.group_id if current.scope_type == "group" else current.sender_user_id
+            )
+            legacy_key = f"{current.scope_type}:{legacy_owner}"
         lock = self._scope_locks.setdefault(scope_key, asyncio.Lock())
         command_time = current.received_at
         seed = secrets.randbits(64)
         async with lock:
             for attempt in range(CAS_ATTEMPTS):
                 try:
+                    if legacy_key is not None and legacy_key != scope_key:
+                        legacy = await context.storage.get(STATE_NAMESPACE, legacy_key)
+                        if legacy is not None:
+                            return _legacy_identity_error(legacy)
                     old_value = await context.storage.get(STATE_NAMESPACE, scope_key)
+                    if isinstance(old_value, dict) and old_value.get("schema_version") == 1:
+                        return _legacy_identity_error(old_value)
                     if old_value is not None and not isinstance(old_value, dict):
                         raise _engine.StateValidationError("stored envelope is not an object")
                     old_envelope = cast("Mapping[str, object] | None", old_value)
@@ -181,7 +196,7 @@ class KunGamePlugin:
                         result = _engine.execute_admin(
                             old_envelope,
                             text=text,
-                            user_id=current.sender_user_id,
+                            user_id=current.person_id,
                             display_name=display_name,
                             scope_type=game_scope,
                             scope_id=scope_id,
@@ -193,11 +208,11 @@ class KunGamePlugin:
                         result = _engine.execute_play(
                             old_envelope,
                             text=text,
-                            user_id=current.sender_user_id,
+                            user_id=current.person_id,
                             display_name=display_name,
                             scope_type=game_scope,
                             scope_id=scope_id,
-                            mentioned_user_ids=current.mentioned_user_ids,
+                            mentioned_person_ids=current.mentioned_person_ids,
                             rng=random.Random(seed),
                             now=command_time,
                             config=plugin_config.engine_config(),
@@ -334,6 +349,21 @@ def _revision(envelope: Mapping[str, object] | None) -> int:
 
 def _error(code: str, text: str) -> CommandResult:
     return CommandResult(ok=False, error_code=code, text=text, detail=text)
+
+
+def _legacy_identity_error(value: JsonValue) -> CommandResult:
+    result = _error(
+        "kun_game.legacy_identity_unresolved",
+        "旧养鲲存档的身份归属尚未确认，原数据已保留；请先核对旧玩家和空间的归属。",
+    )
+    return result.model_copy(
+        update={
+            "data": {
+                "legacy": True,
+                "revision": _revision(value) if isinstance(value, dict) else 0,
+            },
+        }
+    )
 
 
 __all__ = ["GameArguments", "KunGameConfig", "KunGamePlugin"]

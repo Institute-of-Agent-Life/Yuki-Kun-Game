@@ -1,7 +1,7 @@
 # Yuki 养鲲游戏插件
 
 这是 [`UBC2008/astrbot_plugin_kun_game`](https://github.com/UBC2008/astrbot_plugin_kun_game)
-的 Yuki Plugin API 3.4 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
+的 Yuki Plugin API 4.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
 负数资源、保存顺序、拍卖覆盖、文本 QQ 目标、数星星答案和重复处罚等问题。
 
 插件只注册两个确定性命令：普通用户 `play` 与超级用户 `admin`。`*签到` 等短入口由 Yuki Host
@@ -9,7 +9,9 @@
 
 ## 安装与启用
 
-本仓库已包含插件目录。先在 `.env` 启用插件系统和静态直达绑定：
+这是独立插件仓库。把完整目录放入 Yuki 配置的 `PLUGIN_DIRECTORY` 下，例如
+`plugins/io.github.yuanyeyoutao.kun-game/`；保留根部 `plugin.toml`、`plugin.py` 和 `engine.py`。
+插件由 Yuki Host 提供 SDK 4.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
 
 ```dotenv
 PLUGIN_SYSTEM_ENABLED=true
@@ -18,7 +20,7 @@ PLUGIN_DIRECT_COMMAND_BINDINGS={"*":"io.github.yuanyeyoutao.kun-game:play"}
 
 校验、发现、审阅权限、批准并启用：
 
-在线 CLI 需要通过环境提供已有操作员的 `YUKI_CONTROL_CREDENTIAL`，并令 `WEBUI_ORIGIN` 指向实际 Host；不要在命令行写凭据。批准前审阅下面列出的 Manifest 权限，CLI 不传 `--permission` 只批准空集合。
+在线 CLI 需要通过环境提供已有操作员的 `YUKI_CONTROL_CREDENTIAL`，并令 `ADMIN_API_URL` 指向实际 Host；不要在命令行写凭据。批准前审阅下面列出的 Manifest 权限，CLI 不传 `--permission` 只批准空集合。
 
 ```bash
 uv run qq-ai-bot-cli plugin validate plugins/io.github.yuanyeyoutao.kun-game
@@ -67,7 +69,7 @@ uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
 
 - 基础：`签到`、`当前游戏`、`命令菜单`、`查阅属性`、`今日运势`、`阵亡名单`、`拍卖行`。
 - 养成：`孵化`、`买蛋`、`砸蛋`、`喂食`、`磨炼`、`幻化`、`喝鸡汤`、`渡劫`、`放生`、`复活`。
-- PVP：`吞噬`、`攻击`、`强袭`、`扔蛋`；必须恰好提及一个当前群中的真实玩家，纯文本 QQ 号无效。
+- PVP：`吞噬`、`攻击`、`强袭`、`扔蛋`；使用 Host 解析的真实 Person 提及，纯文本账号无效。
 - BOSS：`查询BOSS`、`攻击BOSS`、`吞噬BOSS`、`强袭BOSS`。
 - 拍卖：`出售`、`出价`、`成交`。
 - 其他：`免疫强袭`、`免疫吞噬`、`免疫攻击`、`查骰子`、`奥数比赛`、`数星星`、`抄作业`、`抽群主一个大嘴巴`、`单挑群主`、`=答案`。
@@ -89,7 +91,7 @@ uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 重置局状态
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 清除全群数据 <当前群号>
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 强制下架
-/ai plugin run io.github.yuanyeyoutao.kun-game admin 修改 <QQ号> <项目> <数值>
+/ai plugin run io.github.yuanyeyoutao.kun-game admin 修改 <Person编号> <项目> <数值>
 ```
 
 如果当前群已被 Yuki Host 禁用，先用 Yuki 原生管理命令启用该群；插件不申请或绕过 Host 群准入权限。
@@ -119,17 +121,17 @@ SUPERUSER 可查看或修改当前群覆盖值：
 
 ## 状态与故障语义
 
-- 私有 KV 使用 `state/group:<gid>` 或 `state/private:<uid>`，不会把相同数字的群号与 QQ 号混在一起。
+- 私有 KV 使用 `state/group:<Space编号>` 或 `state/private:<Person编号>`；玩家、提及、拍卖、BOSS 和小游戏引用均使用内部 Person。QQ/TG 同号不共享身份或存档，已确认属于同一 Space 的入口共用群存档。
+- 独立离线迁移脚本只按真实旧 QQ Binding/SpaceBinding 迁移旧存档，不改资源、玩法 revision 或原时间。无法解析的玩家、转移过账号的多个真实 owner，以及同一 Person/Space 的独立旧存档碰撞，保留原 JSON 并明确报告归属尚未确认；不会生成空档覆盖、清除记录或猜测经济合并。
 - 每个作用域由单进程锁串行化，并以整状态 CAS 提交；冲突时用相同消息时间和随机 seed 最多重算两次。
 - 每日边界固定为 `Asia/Shanghai`，不受容器本地时区影响。
 - 损坏状态会失败关闭，不会用默认值覆盖；首版不包含旧 `groups.json` 运行时迁移。
-- 状态变更采用 at-most-once 执行。极少数情况下，状态可能已提交，但 QQ 回复发送失败，插件不会自动重放。
+- 状态变更采用 at-most-once 执行。极少数情况下，状态可能已提交，但回复发送失败，插件不会自动重放。
 
 ## 回滚
 
 先执行 `qq-ai-bot-cli plugin disable io.github.yuanyeyoutao.kun-game`，再从 `.env` 删除对应
-`PLUGIN_DIRECT_COMMAND_BINDINGS` 并重启 Bot。插件私有状态保留且不会注入 Main Agent；本版未新增
-数据库迁移，无需删除或逆向修改业务表。
+`PLUGIN_DIRECT_COMMAND_BINDINGS` 并重启 Bot。插件私有状态保留且不会注入 Main Agent；插件不再向 Yuki 主仓库附加游戏专用 Alembic 迁移；不能删除或逆向覆盖业务表。
 
 ## 权限与许可
 
@@ -138,3 +140,11 @@ LLM、Agent、OneBot、主动发送、Host 运行时配置、Secret 或后台任
 
 本适配版按 MIT License 发布。原始玩法和 AstrBot 移植的著作权与归属见 [NOTICE](NOTICE) 和
 [LICENSE](LICENSE)。
+
+## 独立开发
+
+在本仓库运行 `uv sync --group dev`，然后 `uv run pytest` 与 `uv run ruff check .`。
+游戏引擎和离线迁移的测试不依赖 Yuki 主仓库；插件集成校验在目标 Host 中执行前述
+plugin validate/test。安装包保留 MIT [LICENSE](LICENSE) 与上游 [NOTICE](NOTICE)。
+完整玩法见[使用说明](docs/guide.md)。旧存档升级按独立脚本说明操作，停 Bot 并备份原库，
+不要用新空存档、重新抓取或清库替代迁移。
