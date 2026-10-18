@@ -1,11 +1,12 @@
 # Yuki 养鲲游戏插件
 
 这是 [`UBC2008/astrbot_plugin_kun_game`](https://github.com/UBC2008/astrbot_plugin_kun_game)
-的 Yuki Plugin API 4.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
+的 Yuki Plugin API 5.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
 负数资源、保存顺序、拍卖覆盖、文本 QQ 目标、数星星答案和重复处罚等问题。
 
-当前版本需要提供 **Plugin API 4.0** 的 Yuki Host，该合同正在多平台开发分支实施，尚未合入
-Yuki main。正式 3.9.0 的 Plugin API 3.5 无法加载本版；不能只改 Manifest 版本号跳过适配。
+当前版本需要提供 **Plugin API 5.0** 的 Yuki Host。5.0 已移除表情池专属接口；本插件不使用
+这些接口，消息、内部人物/空间、命令、配置和私有 KV 合同保持一致。正式 3.9.0 的 Plugin API 3.5
+及 API 4.0 Host 无法加载本版；升级 Host 后重新发现并审阅本版 Manifest，原存档继续保留。
 
 插件只注册两个确定性命令：普通用户 `play` 与超级用户 `admin`。`*签到` 等短入口由 Yuki Host
 静态绑定到 `play`，仍完整经过群/私聊准入、消息去重、入站账本、限流、权限、调用作用域和超时。
@@ -14,7 +15,7 @@ Yuki main。正式 3.9.0 的 Plugin API 3.5 无法加载本版；不能只改 Ma
 
 这是独立插件仓库。把完整目录放入 Yuki 配置的 `PLUGIN_DIRECTORY` 下，例如
 `plugins/io.github.yuanyeyoutao.kun-game/`；保留根部 `plugin.toml`、`plugin.py` 和 `engine.py`。
-插件由 Yuki Host 提供 SDK 4.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
+插件由 Yuki Host 提供 SDK 5.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
 
 ```dotenv
 PLUGIN_SYSTEM_ENABLED=true
@@ -62,7 +63,7 @@ uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
 *=42
 ```
 
-调试或未配置直达绑定时，可使用长入口：
+调试或未配置直达绑定时，可使用长入口；Host 按命令本身核验权限：
 
 ```text
 /ai plugin run io.github.yuanyeyoutao.kun-game play 签到
@@ -83,7 +84,7 @@ uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
 
 ## SUPERUSER 管理
 
-管理动作不能通过 `*` 或 `play` 执行，只接受 Yuki 的真实 `SUPERUSERS` 长入口：
+管理动作不能通过 `*` 或 `play` 执行，由 Host 核验当前 Person 的超级管理员资格，使用管理入口：
 
 ```text
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 鲲开
@@ -92,7 +93,7 @@ uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 小游戏关
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 刷新BOSS
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 重置局状态
-/ai plugin run io.github.yuanyeyoutao.kun-game admin 清除全群数据 <当前群号>
+/ai plugin run io.github.yuanyeyoutao.kun-game admin 清除全群数据 <当前Space编号>
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 强制下架
 /ai plugin run io.github.yuanyeyoutao.kun-game admin 修改 <Person编号> <项目> <数值>
 ```
@@ -100,7 +101,7 @@ uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
 如果当前群已被 Yuki Host 禁用，先用 Yuki 原生管理命令启用该群；插件不申请或绕过 Host 群准入权限。
 
 `重置局状态` 保留玩家养成资源，只清理 BOSS、拍卖、阵亡记录和当前小游戏；拍卖托管中的鲲会先安全
-返还卖家。`清除全群数据` 会删除本群全部玩家与局状态，必须把当前群号作为确认参数。
+返还卖家。`清除全群数据` 会删除本群全部玩家与局状态，必须把当前内部 Space 编号作为确认参数。
 
 ## 经济配置
 
@@ -148,6 +149,7 @@ LLM、Agent、OneBot、主动发送、Host 运行时配置、Secret 或后台任
 
 在本仓库运行 `uv sync --group dev`，然后 `uv run pytest` 与 `uv run ruff check .`。
 游戏引擎和离线迁移的测试不依赖 Yuki 主仓库；插件集成校验在目标 Host 中执行前述
-plugin validate/test。安装包保留 MIT [LICENSE](LICENSE) 与上游 [NOTICE](NOTICE)。
+plugin validate/test。`tests/test_host_sdk.py` 在目标 Host SDK 可用时额外验证真实 Manifest
+装载、注册/启动/停止以及当前 SDK 的命令、人物、配置与 KV 交互；独立引擎环境跳过这组 Host 集成。安装包保留 MIT [LICENSE](LICENSE) 与上游 [NOTICE](NOTICE)。
 完整玩法见[使用说明](docs/guide.md)。旧存档升级按独立脚本说明操作，停 Bot 并备份原库，
 不要用新空存档、重新抓取或清库替代迁移。
