@@ -114,7 +114,7 @@ class KunGamePlugin:
         )
 
     async def start(self, context: PluginContext) -> None:
-        context.features.require("message.current.mentions.v1")
+        context.features.require("message.current.mentions.v2")
         self._context = context
 
     async def stop(self) -> None:
@@ -212,7 +212,14 @@ class KunGamePlugin:
                             display_name=display_name,
                             scope_type=game_scope,
                             scope_id=scope_id,
-                            mentioned_person_ids=current.mentioned_person_ids,
+                            mentioned_person_ids=tuple(
+                                dict.fromkeys(
+                                    person_id
+                                    for mention in current.mentions
+                                    if mention.get("kind") == "member"
+                                    and isinstance(person_id := mention.get("person_id"), str)
+                                )
+                            ),
                             rng=random.Random(seed),
                             now=command_time,
                             config=plugin_config.engine_config(),

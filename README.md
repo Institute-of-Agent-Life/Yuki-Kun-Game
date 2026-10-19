@@ -1,12 +1,12 @@
 # Yuki 养鲲游戏插件
 
 这是 [`UBC2008/astrbot_plugin_kun_game`](https://github.com/UBC2008/astrbot_plugin_kun_game)
-的 Yuki Plugin API 5.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
+的 Yuki Plugin API 6.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
 负数资源、保存顺序、拍卖覆盖、文本 QQ 目标、数星星答案和重复处罚等问题。
 
-当前版本需要提供 **Plugin API 5.0** 的 Yuki Host。5.0 已移除表情池专属接口；本插件不使用
-这些接口，消息、内部人物/空间、命令、配置和私有 KV 合同保持一致。正式 3.9.0 的 Plugin API 3.5
-及 API 4.0 Host 无法加载本版；升级 Host 后重新发现并审阅本版 Manifest，原存档继续保留。
+当前版本需要提供 **Plugin API 6.0** 的 Yuki Host。游戏目标从当前消息的原位置提及快照读取内部
+Person ID；同一玩家被多次提及时只选一次，未知账号、其他 Bot 和全体提及不会被当作玩家。
+旧版 Host 无法加载本版；升级 Host 后重新发现并审阅本版 Manifest，权限集合和原存档保持不变。
 
 插件只注册两个确定性命令：普通用户 `play` 与超级用户 `admin`。`*签到` 等短入口由 Yuki Host
 静态绑定到 `play`，仍完整经过群/私聊准入、消息去重、入站账本、限流、权限、调用作用域和超时。
@@ -15,7 +15,7 @@
 
 这是独立插件仓库。把完整目录放入 Yuki 配置的 `PLUGIN_DIRECTORY` 下，例如
 `plugins/io.github.yuanyeyoutao.kun-game/`；保留根部 `plugin.toml`、`plugin.py` 和 `engine.py`。
-插件由 Yuki Host 提供 SDK 5.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
+插件由 Yuki Host 提供 SDK 6.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
 
 ```dotenv
 PLUGIN_SYSTEM_ENABLED=true
