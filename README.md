@@ -1,10 +1,10 @@
 # Yuki 养鲲游戏插件
 
 这是 [`UBC2008/astrbot_plugin_kun_game`](https://github.com/UBC2008/astrbot_plugin_kun_game)
-的 Yuki Plugin API 6.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
+的 Yuki Plugin API 7.0 适配版，保留养成、PVP、BOSS、拍卖和群小游戏，并修复原实现中已确认的
 负数资源、保存顺序、拍卖覆盖、文本 QQ 目标、数星星答案和重复处罚等问题。
 
-当前版本需要提供 **Plugin API 6.0** 的 Yuki Host。游戏目标从当前消息的原位置提及快照读取内部
+当前版本需要提供 **Plugin API 7.0** 的 Yuki Host。游戏目标从当前消息的原位置提及快照读取内部
 Person ID；同一玩家被多次提及时只选一次，未知账号、其他 Bot 和全体提及不会被当作玩家。
 旧版 Host 无法加载本版；升级 Host 后重新发现并审阅本版 Manifest，权限集合和原存档保持不变。
 
@@ -15,7 +15,7 @@ Person ID；同一玩家被多次提及时只选一次，未知账号、其他 B
 
 这是独立插件仓库。把完整目录放入 Yuki 配置的 `PLUGIN_DIRECTORY` 下，例如
 `plugins/io.github.yuanyeyoutao.kun-game/`；保留根部 `plugin.toml`、`plugin.py` 和 `engine.py`。
-插件由 Yuki Host 提供 SDK 6.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
+插件由 Yuki Host 提供 SDK 7.0，不导入主仓库源码。先在 Yuki 的 `.env` 启用插件系统和静态直达绑定：
 
 ```dotenv
 PLUGIN_SYSTEM_ENABLED=true
@@ -27,25 +27,25 @@ PLUGIN_DIRECT_COMMAND_BINDINGS={"*":"io.github.yuanyeyoutao.kun-game:play"}
 在线 CLI 需要通过环境提供已有操作员的 `YUKI_CONTROL_CREDENTIAL`，并令 `ADMIN_API_URL` 指向实际 Host；不要在命令行写凭据。批准前审阅下面列出的 Manifest 权限，CLI 不传 `--permission` 只批准空集合。
 
 ```bash
-uv run qq-ai-bot-cli plugin validate plugins/io.github.yuanyeyoutao.kun-game
-uv run qq-ai-bot-cli plugin test plugins/io.github.yuanyeyoutao.kun-game
-uv run qq-ai-bot-cli plugin discover
-uv run qq-ai-bot-cli plugin inspect io.github.yuanyeyoutao.kun-game
-uv run qq-ai-bot-cli plugin approve io.github.yuanyeyoutao.kun-game --permission command.register --permission message.current.read --permission person.current.read --permission storage.private --permission plugin.config.read --permission plugin.config.write
-uv run qq-ai-bot-cli plugin enable io.github.yuanyeyoutao.kun-game
+uv run yuki plugin validate plugins/io.github.yuanyeyoutao.kun-game
+uv run yuki plugin test plugins/io.github.yuanyeyoutao.kun-game
+uv run yuki plugin discover
+uv run yuki plugin inspect io.github.yuanyeyoutao.kun-game
+uv run yuki plugin approve io.github.yuanyeyoutao.kun-game --permission command.register --permission message.current.read --permission person.current.read --permission storage.private --permission plugin.config.read --permission plugin.config.write
+uv run yuki plugin enable io.github.yuanyeyoutao.kun-game
 ```
 
 静态前缀和插件生命周期都在启动时装配，完成配置后重启 Bot：
 
 ```bash
 docker compose restart bot
-docker compose exec bot qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
+docker compose exec bot yuki plugin doctor io.github.yuanyeyoutao.kun-game
 ```
 
 若不使用 Docker，把最后两条替换为重启本地 `qq-ai-bot` 并运行：
 
 ```bash
-uv run qq-ai-bot-cli plugin doctor io.github.yuanyeyoutao.kun-game
+uv run yuki plugin doctor io.github.yuanyeyoutao.kun-game
 ```
 
 插件停用、未批准或启动失败时，已配置的 `*` 绑定会失败关闭，不会回退 Main Agent。删除
@@ -134,7 +134,7 @@ SUPERUSER 可查看或修改当前群覆盖值：
 
 ## 回滚
 
-先执行 `qq-ai-bot-cli plugin disable io.github.yuanyeyoutao.kun-game`，再从 `.env` 删除对应
+先执行 `yuki plugin disable io.github.yuanyeyoutao.kun-game`，再从 `.env` 删除对应
 `PLUGIN_DIRECT_COMMAND_BINDINGS` 并重启 Bot。插件私有状态保留且不会注入 Main Agent；插件不再向 Yuki 主仓库附加游戏专用 Alembic 迁移；不能删除或逆向覆盖业务表。
 
 ## 权限与许可
@@ -147,9 +147,11 @@ LLM、Agent、OneBot、主动发送、Host 运行时配置、Secret 或后台任
 
 ## 独立开发
 
+开发依赖固定到提供 API 7.0 的 Yuki `ed1615e145daf75bcc002762a27e93f7ebfa818b` 源码归档，CI 安装同一版本并实际执行完整 Host 契约测试。
+
 在本仓库运行 `uv sync --group dev`，然后 `uv run pytest` 与 `uv run ruff check .`。
 游戏引擎和离线迁移的测试不依赖 Yuki 主仓库；插件集成校验在目标 Host 中执行前述
-plugin validate/test。`tests/test_host_sdk.py` 在目标 Host SDK 可用时额外验证真实 Manifest
-装载、注册/启动/停止以及当前 SDK 的命令、人物、配置与 KV 交互；独立引擎环境跳过这组 Host 集成。安装包保留 MIT [LICENSE](LICENSE) 与上游 [NOTICE](NOTICE)。
+plugin validate/test。`tests/test_host_sdk.py` 使用已固定安装的真实 Host SDK 验证 Manifest
+装载、注册/启动/停止以及当前 SDK 的命令、人物、配置与 KV 交互，CI 实际执行这组集成。安装包保留 MIT [LICENSE](LICENSE) 与上游 [NOTICE](NOTICE)。
 完整玩法见[使用说明](docs/guide.md)。旧存档升级按独立脚本说明操作，停 Bot 并备份原库，
 不要用新空存档、重新抓取或清库替代迁移。
