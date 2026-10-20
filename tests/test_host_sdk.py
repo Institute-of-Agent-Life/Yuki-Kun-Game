@@ -8,11 +8,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-
-pytest.importorskip(
-    "yuki.plugin_host", reason="run Host integration with the target Yuki environment"
-)
-
 from yuki import __version__
 from yuki.plugin_host.extension_registry import ExtensionKind, ExtensionRegistry
 from yuki.plugin_host.loader import PluginLoader
@@ -33,14 +28,14 @@ def plugin_root(tmp_path):
     return target
 
 
-def test_actual_sdk6_loads_and_completes_plugin_lifecycle(plugin_root):
-    assert PLUGIN_API_VERSION == "6.0"
+def test_actual_sdk7_loads_and_completes_plugin_lifecycle(plugin_root):
+    assert PLUGIN_API_VERSION == "7.0"
     report = asyncio.run(run_plugin_contract_tests(plugin_root))
     assert report.passed, report.error_category
     assert report.checks == ("manifest", "permissions", "entrypoint", "register", "start", "stop")
 
 
-def test_registered_commands_keep_canonical_save_and_config_on_sdk6(plugin_root):
+def test_registered_commands_keep_canonical_save_and_config_on_sdk7(plugin_root):
     asyncio.run(_commands(plugin_root))
 
 
