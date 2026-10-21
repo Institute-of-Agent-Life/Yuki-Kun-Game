@@ -5,7 +5,7 @@ description = "养鲲、对战、BOSS、拍卖与群小游戏的确定性游戏�
 entrypoint = "plugin:KunGamePlugin"
 
 plugin_api = "7.0"
-yuki_requires = ">=3.9.0,<4.0"
+yuki_requires = ">=3.9.0"
 
 permissions = [
   "command.register",
