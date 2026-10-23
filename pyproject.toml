@@ -11,7 +11,7 @@ package = false
 
 [dependency-groups]
 dev = [
-    "yuki @ https://github.com/YuanYeYouTao/Yuki/archive/0ee2331003821f7d7ff9225a9d882f9f822dfde8.tar.gz",
+    "yuki @ https://github.com/YuanYeYouTao/Yuki/archive/5592997c7bdc54cd907d65908eb1c508f987cafe.tar.gz",
     "pytest>=8.3,<9", "ruff>=0.8,<1", "tzdata>=2025.2",
 ]
 

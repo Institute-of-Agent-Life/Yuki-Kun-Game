@@ -147,7 +147,7 @@ LLM、Agent、OneBot、主动发送、Host 运行时配置、Secret 或后台任
 
 ## 独立开发
 
-开发依赖固定到提供 API 8.0 的 Yuki `0ee2331003821f7d7ff9225a9d882f9f822dfde8` 源码归档，CI 安装同一版本并实际执行完整 Host 契约测试。
+开发依赖固定到提供 API 8.0 的 Yuki `5592997c7bdc54cd907d65908eb1c508f987cafe` 源码归档，CI 安装同一版本并实际执行完整 Host 契约测试。
 
 在本仓库运行 `uv sync --group dev`，然后 `uv run pytest` 与 `uv run ruff check .`。
 游戏引擎和离线迁移的测试不依赖 Yuki 主仓库；插件集成校验在目标 Host 中执行前述
