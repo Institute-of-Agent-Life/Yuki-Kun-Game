@@ -12,7 +12,7 @@ def test_manifest_accepts_hosts_providing_its_sdk_contract(version):
     source = Path(__file__).parents[1] / "plugin.toml"
     manifest = PluginManifest.model_validate(tomllib.loads(source.read_text(encoding="utf-8")))
     manifest.check_compatibility(yuki_version=version)
-    assert manifest.plugin_api == "8.0"
+    assert manifest.plugin_api == "9.0"
 
 
 def test_manifest_keeps_the_minimum_host_version():
@@ -20,3 +20,10 @@ def test_manifest_keeps_the_minimum_host_version():
     manifest = PluginManifest.model_validate(tomllib.loads(source.read_text(encoding="utf-8")))
     with pytest.raises(ManifestValidationError, match="does not satisfy"):
         manifest.check_compatibility(yuki_version="3.9.9")
+
+
+def test_minimum_product_version_does_not_substitute_for_sdk9():
+    source = Path(__file__).parents[1] / "plugin.toml"
+    manifest = PluginManifest.model_validate(tomllib.loads(source.read_text(encoding="utf-8")))
+    with pytest.raises(ManifestValidationError, match="incompatible"):
+        manifest.check_compatibility(yuki_version="4.0.0", host_plugin_api="8.0")
