@@ -128,6 +128,7 @@ PLAY_COMMANDS = (
     "出售",
     "出价",
     "成交",
+    "撤拍",
     "免疫强袭",
     "免疫吞噬",
     "免疫攻击",
@@ -563,6 +564,8 @@ class _Engine:
             return self.auction_bid(player, user_id, display_name, arguments)
         if command == "成交":
             return self.auction_deal(player, user_id, display_name)
+        if command == "撤拍":
+            return self.auction_cancel(user_id)
         if command.startswith("免疫"):
             return self.immunity(player, display_name, command)
         if command == "查骰子":
@@ -719,7 +722,7 @@ class _Engine:
         player["today_train"] = 0
         if self.rng.random() <= self.config.hatch_misfortune_rate:
             attribute = "悲"
-            weight = self.top_weight() + 1000
+            weight = min(self.top_weight() + 1000, WEIGHT_LIMIT)
         else:
             attribute = self.rng.choice(
                 ("无", "魑", "魅", "魍", "魉", "淫", "馋", "贪", "惰", "怒", "妒", "傲")
@@ -809,7 +812,7 @@ class _Engine:
         if player["eggs"] < count:
             _reject(f"@{name} 你没有足够的蛋！现有{player['eggs']}颗")
         player["eggs"] -= count
-        gain = count * self.rng.randint(5, 15)
+        gain = min(count * self.rng.randint(5, 15), WEIGHT_LIMIT - kun["weight"])
         kun["weight"] += gain
         if kun["attribute"] == "馋" and kun["weight"] > 1000:
             self.kill(player, "馋属性暴食而死")
@@ -838,7 +841,7 @@ class _Engine:
                 f"@{name} 磨炼成功！【{kun['attribute']}】体重减少{format_weight(value)}，"
                 f"剩余体重{format_weight(kun['weight'])}"
             )
-        gain = kun["weight"] - value
+        gain = min(kun["weight"] - value, WEIGHT_LIMIT - kun["weight"])
         kun["weight"] += gain
         if kun["attribute"] == "馋" and kun["weight"] > 1000:
             self.kill(player, "馋属性磨炼暴食而死")
@@ -930,7 +933,7 @@ class _Engine:
         defender["weight"] -= damage
         if defender["weight"] <= 0 or critical:
             defender["weight"] = max(0, defender["weight"])
-            attacker["weight"] += defender["weight"]
+            attacker["weight"] = min(attacker["weight"] + defender["weight"], WEIGHT_LIMIT)
             self.kill(target, f"被{name}吞噬", killer=player["person_id"])
             if defender["attribute"] == "淫" and self.rng.random() < 0.75:
                 self.kill(player, "被淫属性反噬")
@@ -940,7 +943,7 @@ class _Engine:
                 + ("发动了致命一击！\n" if critical else "")
                 + f"现体重：{format_weight(attacker['weight'])}"
             )
-        attacker["weight"] += damage
+        attacker["weight"] = min(attacker["weight"] + damage, WEIGHT_LIMIT)
         if defender["attribute"] == "淫" and self.rng.random() < 0.75:
             self.kill(player, "被淫属性反噬")
             return f"@{name} 吞噬成功但{target_id}的淫属性反噬了你！你狗带了！"
@@ -1003,7 +1006,7 @@ class _Engine:
             )
         if attacker["attribute"] == "淫" and self.rng.random() < 0.25:
             heal = attacker["weight"] * 0.5
-            attacker["weight"] += heal
+            attacker["weight"] = min(attacker["weight"] + heal, WEIGHT_LIMIT)
             return (
                 f"@{name} 发起攻击！\n{target_id}体重减少{format_weight(damage)}\n"
                 f"淫属性触发大恢复术！体重+{format_weight(heal)}"
@@ -1117,7 +1120,7 @@ class _Engine:
         if damage > 0:
             boss["damage_rank"][user_id] = boss["damage_rank"].get(user_id, 0) + damage
         reflect = max(0, boss["weight"]) * 0.1
-        reflected = min(reflect, kun["weight"] * 0.3)
+        reflected = min(reflect, kun["weight"])
         kun["weight"] -= reflected
         action_detail = f"{action}BOSS造成了{format_weight(damage)}伤害"
         if critical:
@@ -1165,7 +1168,7 @@ class _Engine:
             _reject(f"节操不足{self.config.tribulation_cost}！当前节操：{player['jie_cao']}")
         player["jie_cao"] -= self.config.tribulation_cost
         if self.rng.random() < 0.5:
-            kun["weight"] *= self.rng.uniform(1.5, 3.0)
+            kun["weight"] = min(kun["weight"] * self.rng.uniform(1.5, 3.0), WEIGHT_LIMIT)
             return (
                 f"@{name} 渡劫成功！\n体重暴涨至{format_weight(kun['weight'])}\n"
                 f"剩余节操：{player['jie_cao']}"
@@ -1236,7 +1239,8 @@ class _Engine:
         return (
             "拍卖行消息：\n上架成功！\n"
             f"属性：{kun['attribute']}，体重：{format_weight(kun['weight'])}\n"
-            f"起拍价：{price}节操\n发送【{DISPLAY_PREFIX}出价 数值】参与竞拍"
+            f"起拍价：{price}节操\n发送【{DISPLAY_PREFIX}出价 数值】参与竞拍，"
+            f"发送【{DISPLAY_PREFIX}撤拍】可退回鲲"
         )
 
     def auction_bid(self, player: JsonObject, user_id: str, name: str, arguments: str) -> str:
@@ -1267,10 +1271,10 @@ class _Engine:
             _reject("拍卖行消息：没有买主！")
         buyer = self.existing_player(bidder)
         if buyer.get("kun") is not None:
-            _reject("拍卖行消息：买方已经拥有鲲，交易取消且资产未变化。")
+            _reject("拍卖行消息：买方已经拥有鲲，交易取消且资产未变化。卖家可发送【撤拍】退回鲲。")
         price = auction["current_bid"]
         if buyer["jie_cao"] < price:
-            _reject("拍卖行消息：买主节操不足！")
+            _reject("拍卖行消息：买主节操不足！卖家可发送【撤拍】退回鲲。")
         if player.get("kun") is not None:
             _reject("拍卖托管状态冲突，交易已关闭。")
         buyer["jie_cao"] -= price
@@ -1278,6 +1282,15 @@ class _Engine:
         buyer["kun"] = auction["kun"]
         self.state["auction"] = None
         return f"拍卖行消息：\n交易成功！\n{name}的鲲以{price}节操卖给了{bidder}！"
+
+    def auction_cancel(self, user_id: str) -> str:
+        auction = self.state.get("auction")
+        if not auction:
+            _reject("拍卖行消息：你没有在售的鲲！")
+        if auction["seller"] != user_id:
+            _reject("拍卖行消息：你不是卖家！")
+        self.restore_auction()
+        return "拍卖行消息：已撤拍，托管的鲲已退回。"
 
     def auction_force_delist(self) -> str:
         auction = self.state.get("auction")

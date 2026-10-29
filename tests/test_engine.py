@@ -156,6 +156,8 @@ def _smoke_case(command: str) -> tuple[dict[str, Any], str, str, tuple[str, ...]
     elif command == "成交":
         user_id = TARGET_ID
         _auction(envelope, seller=TARGET_ID, bidder=USER_ID)
+    elif command == "撤拍":
+        _auction(envelope, seller=USER_ID)
     elif command.startswith("免疫"):
         player["kun"]["attribute"] = {"免疫强袭": "魑", "免疫吞噬": "魅", "免疫攻击": "魍"}[command]
     engine.validate_envelope(envelope, scope_type="group", scope_id=SCOPE_ID)
@@ -392,6 +394,62 @@ def test_missed_boss_assault_still_consumes_weapon_without_ranking_damage() -> N
     assert "强袭BOSS未命中" in result.text
 
 
+def test_boss_retaliation_can_kill_the_attacker() -> None:
+    envelope = _envelope()
+    kun = envelope["state"]["players"][USER_ID]["kun"]
+    kun["attribute"] = "无"
+    kun["weight"] = 50.0
+
+    result = _play(envelope, "攻击BOSS")
+
+    assert result.envelope is not None
+    state = result.envelope["state"]
+    assert state["players"][USER_ID]["kun"]["alive"] is False
+    assert state["players"][USER_ID]["kun"]["killer"] == "BOSS"
+    assert "反击致死" in result.text
+    assert state["death_list"][-1] == {"person_id": USER_ID, "reason": "讨伐BOSS阵亡"}
+    assert state["boss"]["alive"] is True
+
+
+def test_boss_retaliation_chips_but_spares_heavier_kun() -> None:
+    envelope = _envelope()
+    kun = envelope["state"]["players"][USER_ID]["kun"]
+    kun["attribute"] = "无"
+
+    result = _play(envelope, "攻击BOSS")
+
+    assert result.envelope is not None
+    survived = result.envelope["state"]["players"][USER_ID]["kun"]
+    assert survived["alive"] is True
+    assert 0 < survived["weight"] < 1000.0
+    assert "反伤" in result.text
+
+
+def test_boss_killing_blow_deals_no_retaliation() -> None:
+    envelope = _envelope()
+    kun = envelope["state"]["players"][USER_ID]["kun"]
+    kun["attribute"] = "无"
+    envelope["state"]["boss"]["weight"] = 1.0
+
+    result = _play(envelope, "攻击BOSS")
+
+    assert result.envelope is not None
+    assert result.envelope["state"]["boss"]["alive"] is False
+    assert result.envelope["state"]["players"][USER_ID]["kun"]["weight"] == 1000.0
+
+
+def test_training_failure_gain_is_capped_at_weight_limit() -> None:
+    envelope = _envelope()
+    kun = envelope["state"]["players"][USER_ID]["kun"]
+    kun["weight"] = engine.WEIGHT_LIMIT - 10
+
+    result = _play(envelope, "磨炼 1")
+
+    assert result.envelope is not None
+    assert result.envelope["state"]["players"][USER_ID]["kun"]["weight"] == engine.WEIGHT_LIMIT
+    assert "体重增加" in result.text
+
+
 def test_death_list_is_compacted_in_storage_and_stays_bounded_after_kill() -> None:
     envelope = _envelope()
     envelope["state"]["death_list"] = [
@@ -446,6 +504,47 @@ def test_auction_insufficient_balance_changes_no_asset() -> None:
 
     assert rejected.changed is False
     assert rejected.envelope == before
+
+
+def test_auction_seller_cancel_restores_escrowed_kun() -> None:
+    envelope = _envelope()
+    kun_before = deepcopy(envelope["state"]["players"][USER_ID]["kun"])
+    sold = _play(envelope, "出售 10")
+    bid = _play(sold.envelope, "出价 20", user_id="10003")
+
+    cancelled = _play(bid.envelope, "撤拍")
+
+    assert cancelled.envelope is not None
+    state = cancelled.envelope["state"]
+    assert state["auction"] is None
+    assert state["players"][USER_ID]["kun"] == kun_before
+    assert "已撤拍" in cancelled.text
+
+
+def test_auction_cancel_rejects_non_seller_and_missing_auction() -> None:
+    missing = _play(_envelope(), "撤拍")
+    assert missing.changed is False
+
+    envelope = _envelope()
+    _auction(envelope, seller=TARGET_ID)
+    before = deepcopy(envelope)
+    rejected = _play(envelope, "撤拍")
+    assert rejected.changed is False
+    assert rejected.envelope == before
+
+
+def test_auction_cancel_unsticks_deal_when_bidder_cannot_pay() -> None:
+    envelope = _envelope()
+    _auction(envelope, bidder=USER_ID)
+    envelope["state"]["players"][USER_ID]["jie_cao"] = 0
+    stuck = _play(envelope, "成交", user_id=TARGET_ID)
+    assert stuck.changed is False
+
+    cancelled = _play(envelope, "撤拍", user_id=TARGET_ID)
+
+    assert cancelled.envelope is not None
+    assert cancelled.envelope["state"]["auction"] is None
+    assert cancelled.envelope["state"]["players"][TARGET_ID]["kun"] is not None
 
 
 def test_successful_auction_is_atomic_and_conserves_jie_cao() -> None:
